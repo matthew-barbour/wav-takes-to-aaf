@@ -61,9 +61,13 @@ By default the script previews the planned timeline to stdout and exits. Re-run 
 
 ## Importing into Logic Pro
 
+The simplest path: in Finder, right-click the generated `.aaf` and choose **Open With → Logic Pro**. Logic opens it directly and you can save the result as a new Logic project.
+
+If that doesn't work (or the menu item is missing), use the in-app importer:
 1. Confirm Logic → Settings → Advanced → **Enable Complete Features** is checked.
 2. In Logic, File → Import → AAF…, select the generated `.aaf`.
-3. Logic creates one track per unique track name; takes are placed sequentially with the configured silence gap between them.
+
+Either way, Logic creates one track per unique track name and lays takes out sequentially with the configured silence gap between them.
 
 ## Exit codes
 
