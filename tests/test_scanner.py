@@ -90,3 +90,17 @@ class TestScanFolder:
         files, _ = scan_folder(tmp_path)
         names = sorted(f.display_track_name for f in files)
         assert names == ["Kick", "Overhead-L", "Overhead-R"]
+
+    def test_reads_32bit_float_wav(self, tmp_path):
+        from tests.conftest import write_silent_float_wav
+
+        path = tmp_path / "Kick_01.wav"
+        write_silent_float_wav(path, sample_rate=48000, duration_seconds=2.0)
+        files, warnings = scan_folder(tmp_path)
+        assert warnings == []
+        assert len(files) == 1
+        f = files[0]
+        assert f.sample_rate == 48000
+        assert f.bit_depth == 32
+        assert f.channels == 1
+        assert f.sample_count == 96000

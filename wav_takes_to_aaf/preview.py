@@ -77,7 +77,10 @@ def format_preview(
     lines.append(_wrap_track_list(session.track_names))
     lines.append("")
 
-    lines.append(f"Takes (ordered by earliest mtime, {len(session.takes)} total):")
+    lines.append(
+        f"Takes (clustered by mtime, window {session.cluster_window_seconds:.0f}s, "
+        f"{len(session.takes)} total):"
+    )
     for take in session.takes:
         duration = sum(1 for _ in take.files)  # noqa: F841 — just to compute file count below
         lines.append(

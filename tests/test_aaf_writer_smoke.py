@@ -16,9 +16,9 @@ from wav_takes_to_aaf.timeline import build_timeline
 @pytest.fixture
 def two_takes_three_tracks(tmp_path, wav_factory):
     """
-    Layout:
-      Take 1 (mtime t0):       Kick, Overhead-L, Overhead-R, Mex
-      Take 2 (mtime t0 + 10):  Kick, Overhead-L, Overhead-R       (Mex missing — silent gap)
+    Layout (mtimes spaced beyond the default 60s cluster window):
+      Take 1 (mtime t0):        Kick, Overhead-L, Overhead-R, Mex
+      Take 2 (mtime t0 + 600):  Kick, Overhead-L, Overhead-R       (Mex missing — silent gap)
     """
     folder = tmp_path / "session"
     folder.mkdir()
@@ -27,7 +27,7 @@ def two_takes_three_tracks(tmp_path, wav_factory):
     for name in ["Kick_01.wav", "Overhead_01-L.wav", "Overhead_01-R.wav", "Mex_01.wav"]:
         wav_factory(name, mtime=t0, duration_seconds=1.0, folder=folder)
     for name in ["Kick_02.wav", "Overhead_02-L.wav", "Overhead_02-R.wav"]:
-        wav_factory(name, mtime=t0 + 10, duration_seconds=1.0, folder=folder)
+        wav_factory(name, mtime=t0 + 600, duration_seconds=1.0, folder=folder)
 
     return folder
 

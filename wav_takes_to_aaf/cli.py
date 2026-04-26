@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from .grouper import group_files
+from .grouper import DEFAULT_CLUSTER_WINDOW_SECONDS, group_files
 from .preview import format_preview
 from .scanner import scan_folder
 from .timeline import build_timeline
@@ -34,6 +34,17 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=60.0,
         help="Silence gap between takes, in seconds (default: 60)",
+    )
+    p.add_argument(
+        "--cluster-window-seconds",
+        type=float,
+        default=DEFAULT_CLUSTER_WINDOW_SECONDS,
+        help=(
+            "Files whose mtimes fall within this window are grouped into the same take "
+            "(default: 60). Pro Tools writes each track's mtime when recording stops, "
+            "so files from the same record-pass cluster tightly. Increase if your DAW "
+            "stops tracks asynchronously; decrease if takes happen back-to-back."
+        ),
     )
     p.add_argument(
         "--write",
@@ -70,6 +81,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.gap_seconds < 0:
         print("Error: --gap-seconds must be >= 0", file=sys.stderr)
         return EXIT_USAGE
+    if args.cluster_window_seconds < 0:
+        print("Error: --cluster-window-seconds must be >= 0", file=sys.stderr)
+        return EXIT_USAGE
 
     output_path: Path = args.output or _default_output(input_folder)
 
@@ -85,7 +99,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         from .grouper import GroupedSession
         from .timeline import TimelinePlan
 
-        empty_session = GroupedSession(takes=[], track_names=[], session_sample_rate=0, session_bit_depth=0, warnings=warnings)
+        empty_session = GroupedSession(takes=[], track_names=[], session_sample_rate=0, session_bit_depth=0, cluster_window_seconds=args.cluster_window_seconds, warnings=warnings)
         empty_plan = TimelinePlan(placements=[], sample_rate=0, gap_samples=0, total_samples=0)
         report = format_preview(
             input_folder=input_folder,
@@ -102,7 +116,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"\nError: no parseable WAV files in {input_folder}", file=sys.stderr)
         return EXIT_INPUT
 
-    session = group_files(parsed_files)
+    session = group_files(parsed_files, cluster_window_seconds=args.cluster_window_seconds)
     all_warnings = list(scan_warnings) + list(session.warnings)
     plan = build_timeline(session, gap_seconds=args.gap_seconds)
 

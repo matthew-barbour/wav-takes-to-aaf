@@ -54,7 +54,7 @@ A single `.aaf` file written to a user-specified location (default: alongside th
 ## 3. Constraints and environment
 
 - **Platform**: macOS only. Tested on macOS Sequoia and Tahoe, Apple Silicon (M1).
-- **Python**: 3.11 or newer (use whatever ships with a recent Homebrew Python or the user's preferred pyenv).
+- **Python**: 3.9 or newer (system Python on macOS Sequoia/Tahoe is fine; no Homebrew or pyenv required).
 - **Source files are read-only**: the script must never modify, move, rename, or delete WAV files in the input folder.
 - **Logic Pro AAF import requirement**: Logic must have "Enable Complete Features" turned on in Preferences > Advanced for AAF import to be available. The script's README should mention this.
 - **Single project at a time**: no batch mode, no folder-of-folders processing.
@@ -70,15 +70,16 @@ A single `.aaf` file written to a user-specified location (default: alongside th
    - Parse filename with regex: `^(?P<track>.+?)_(?P<take>\d+)(?:-(?P<channel>[LR]))?\.wav$`
    - If the filename does not match, log a warning and skip the file. Do not abort.
    - Read the file's `mtime` (modification time) via `os.stat`.
-   - Read the WAV header to extract sample rate, bit depth, channel count, and duration in samples. Use Python's stdlib `wave` module; if a file fails to parse, log a warning and skip it.
-3. Group files by **take number** (the parsed integer from the filename). Each take is a set of WAV files sharing the same take number.
-4. Within a take, identify stereo pairs by matching `-L` and `-R` suffixes on the same track name. A stereo pair is treated as **two separate mono tracks** in the AAF (per user requirement). Files without `-L`/`-R` suffix are mono tracks.
+   - Read the WAV header to extract sample rate, bit depth, channel count, and duration in samples. Parse the RIFF/WAVE container directly (not via Python's stdlib `wave` module, which only supports format code 1 / integer PCM). The implementation must accept format code 1 (PCM int), 3 (IEEE float — Pro Tools default), and 0xFFFE (WAVE_FORMAT_EXTENSIBLE, falling through to its `SubFormat` GUID). RF64 is also accepted for files >4 GB. If a file fails to parse, log a warning and skip it.
+3. Group files into takes by **clustering on mtime**. Sort all files by mtime ascending; any file whose mtime is within `cluster_window_seconds` of the previous file's mtime joins the same cluster, otherwise it starts a new one. Each cluster is one take. Take numbers are 1-based chronological cluster indices — the filename `_NN` suffix is **display-only** and is never used as a grouping key.
+4. Within a cluster, identify stereo pairs by matching `-L` and `-R` suffixes on the same track name. A stereo pair is treated as **two separate mono tracks** in the AAF (per user requirement). Files without `-L`/`-R` suffix are mono tracks.
+5. If a track has more than one file in the same cluster (e.g., a punch-in overdub captured within the cluster window), keep the **longest** file and warn about the others. This preserves the "one clip per track per take" model the AAF writer expects.
+
+**Why mtime clustering, not filename `_NN` grouping**: Pro Tools updates a WAV's mtime at end-of-recording (when you hit Stop), and numbers files per-track rather than per-session. Two tracks that were both rolling during the same physical take typically have very different `_NN` suffixes (`BenGuitar_01.wav` and `Snare Top_09.wav` can be the same take), but they share an mtime within seconds. The original filename-based grouping in this spec was wrong; mtime clustering matches Pro Tools reality and was validated against real session data on 2026-04-26.
 
 ### 4.2 Take ordering
 
-Takes are ordered by the **earliest mtime among the files in that take** (timestamp wins). The take number is used only as a label and grouping key, never for ordering.
-
-If two takes have mtimes within 5 seconds of each other (unlikely but possible), order by take number as a tiebreaker and log a warning.
+Takes are emitted in cluster order — i.e., chronologically by earliest mtime in each cluster. Within a take, files are placed at the take's start position regardless of their individual mtimes (since mtime is end-of-recording, not start).
 
 ### 4.3 Track layout
 
@@ -120,6 +121,9 @@ Options:
   -o, --output PATH       Output AAF file path
                           (default: <input_folder>/<input_folder_name>.aaf)
   -g, --gap-seconds N     Silence gap between takes, in seconds (default: 60)
+  --cluster-window-seconds N
+                          Files whose mtimes fall within this window form one
+                          take (default: 60). See section 4.1.
   --write                 Actually write the AAF file. Without this flag,
                           the script runs in preview mode only.
   --log PATH              Write detailed log to this file (in addition to stdout)
@@ -147,17 +151,17 @@ Tracks (alphabetical, 14 total):
   MaddMatt, Mex, Overhead-L, Overhead-R, Snare Bottom,
   Snare Top, Tom 1, Tom 2, Tom 3
 
-Takes (ordered by earliest mtime, 12 total):
-  Take  9  | mtime 2026-04-18 21:47:17 | duration 4m 23s | 14 files
-  Take 10  | mtime 2026-04-18 21:53:02 | duration 5m 11s | 14 files
-  Take 11  | mtime 2026-04-18 22:07:31 | duration 3m 58s | 14 files
-  Take 12  | mtime 2026-04-18 22:19:44 | duration 6m 02s | 14 files
+Takes (clustered by mtime, window 60s, 4 total):
+  Take  1  | mtime 2026-04-18 21:47:17 | duration 4m 23s | 14 files
+  Take  2  | mtime 2026-04-18 21:53:02 | duration 5m 11s | 14 files
+  Take  3  | mtime 2026-04-18 22:07:31 | duration 3m 58s | 14 files
+  Take  4  | mtime 2026-04-18 22:19:44 | duration 6m 02s | 14 files
   ...
 
 Timeline layout (gap: 60s between takes):
-  00:00:00.000  Take  9   ends 00:04:23.000
-  00:05:23.000  Take 10   ends 00:10:34.000
-  00:11:34.000  Take 11   ends 00:15:32.000
+  00:00:00.000  Take  1   ends 00:04:23.000
+  00:05:23.000  Take  2   ends 00:10:34.000
+  00:11:34.000  Take  3   ends 00:15:32.000
   ...
   Total project length: 1h 12m 04s
 
@@ -197,10 +201,11 @@ The script must handle these gracefully (log a warning and continue when possibl
 |---|---|
 | Filename does not match expected pattern | Skip file, log warning, continue |
 | WAV file is corrupt or unreadable | Skip file, log warning, continue |
+| WAV file uses an unsupported format code (anything other than 1, 3, or extensible-resolving-to-1-or-3) | Skip file, log warning, continue |
 | Take has only an `-L` file with no matching `-R` (or vice versa) | Treat as mono, log warning |
 | Files within a take have different sample rates | Use most common rate for AAF, log warning listing outliers |
 | Files within a take have substantially different durations (>1 second) | Use longest, log warning |
-| Two takes have nearly identical mtimes (<5s apart) | Order by take number, log warning |
+| Multiple files for the same track in a single mtime cluster | Use the longest, log warning naming dropped files |
 | Input folder does not exist | Abort with clear error, exit code 2 |
 | Input folder has zero WAV files | Abort with clear error, exit code 2 |
 | Output path is not writable | Abort with clear error, exit code 3 |
@@ -294,5 +299,6 @@ Things the developer should confirm with Matt during or after the smoke test:
 1. Does Logic correctly group the `Overhead-L` and `Overhead-R` tracks in a way that's easy to work with, or should the AAF name them differently (e.g., `Overhead L` / `Overhead R` with a space, or just `Overhead_L` / `Overhead_R` with underscores)?
 2. Is the alphabetical track ordering actually convenient in Logic, or would a fixed default order (drums first, then bass, keys, etc.) be more useful even as a v1 default?
 3. Is 60 seconds the right default gap, or would something different (30s, 90s, 120s) be better in practice? The flag is there either way; this is just about the default.
+4. Is 60 seconds the right default `--cluster-window-seconds`? Symptoms of a wrong value: too narrow → one physical take splits into multiple takes in Logic; too wide → distinct back-to-back takes get merged and the same-track-duplicates warning fires repeatedly. Alternatives: 30s, 90s, 120s, 300s.
 
 These are deliberately not blocking decisions — sensible defaults are in the spec, and the user can revise after using v1 a few times.
