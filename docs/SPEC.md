@@ -140,7 +140,7 @@ Rationale: weekly recurring use means take detection edge cases (missing files, 
 ### Preview output format
 
 ```
-Input folder: /Users/matt/Music/SessionFolder
+Input folder: /Users/you/Music/SessionFolder
 Found 168 WAV files, parsed 167 (1 skipped — see warnings)
 
 Detected sample rate: 48000 Hz (all files agree)
@@ -165,7 +165,7 @@ Timeline layout (gap: 60s between takes):
   ...
   Total project length: 1h 12m 04s
 
-Output AAF: /Users/matt/Music/SessionFolder/SessionFolder.aaf
+Output AAF: /Users/you/Music/SessionFolder/SessionFolder.aaf
 (preview only — re-run with --write to generate)
 
 Warnings:
@@ -242,7 +242,7 @@ This smoke test is **gating**: if Logic does not import the AAF cleanly, the for
 
 ### 8.3 Real-data validation
 
-After the smoke test passes, run the script against one of Matt's actual session folders in preview mode first, then with `--write`, and verify the result imports cleanly into Logic Pro and matches what the manual workflow would have produced.
+After the smoke test passes, run the script against a real session folder in preview mode first, then with `--write`, and verify the result imports cleanly into Logic Pro and matches what the manual workflow would have produced.
 
 ---
 
@@ -292,13 +292,26 @@ If any of these become useful later, they can be added in a v2.
 
 ---
 
-## 11. Open questions for implementation time
+## 11. Design decisions
 
-Things the developer should confirm with Matt during or after the smoke test:
+Decisions made during v1 implementation, with the rationale. Each can be revisited by changing the relevant default in the code or by passing the corresponding CLI flag per-run.
 
-1. Does Logic correctly group the `Overhead-L` and `Overhead-R` tracks in a way that's easy to work with, or should the AAF name them differently (e.g., `Overhead L` / `Overhead R` with a space, or just `Overhead_L` / `Overhead_R` with underscores)?
-2. Is the alphabetical track ordering actually convenient in Logic, or would a fixed default order (drums first, then bass, keys, etc.) be more useful even as a v1 default?
-3. Is 60 seconds the right default gap, or would something different (30s, 90s, 120s) be better in practice? The flag is there either way; this is just about the default.
-4. Is 60 seconds the right default `--cluster-window-seconds`? Symptoms of a wrong value: too narrow → one physical take splits into multiple takes in Logic; too wide → distinct back-to-back takes get merged and the same-track-duplicates warning fires repeatedly. Alternatives: 30s, 90s, 120s, 300s.
+### 11.1 Grouping by mtime cluster, not filename `_NN`
 
-These are deliberately not blocking decisions — sensible defaults are in the spec, and the user can revise after using v1 a few times.
+Pre-implementation drafts of this spec called for grouping files by the integer in the filename suffix. Validation against real Pro Tools session data showed that approach was wrong: Pro Tools numbers files **per-track**, not per-session, so two tracks rolling during the same physical take routinely have very different `_NN` suffixes. Pro Tools also updates each file's mtime at end-of-recording, so files from one record-pass cluster tightly on mtime even when their filename numbers diverge. The implemented algorithm in section 4.1 reflects this; the filename `_NN` is now display-only.
+
+### 11.2 Stereo pairs as two mono tracks, named `<Track>-L` / `<Track>-R`
+
+The hyphen separator was chosen because it matches the input filename convention exactly and avoids visual collision with track names that already contain spaces (e.g., `Snare Top`) or underscores. Stereo pairs are emitted as two independent mono tracks rather than a single stereo Logic track per the maintainer's stated preference — preserves per-mic flexibility for editing.
+
+### 11.3 Alphabetical (case-insensitive) track ordering
+
+A fixed instrument order (drums first, then bass, keys, etc.) was considered and rejected for v1: it requires a hardcoded classification table that won't generalize across naming variations across sessions. Alphabetical is predictable, locale-independent, and easy to skim in Logic.
+
+### 11.4 60-second defaults for `--gap-seconds` and `--cluster-window-seconds`
+
+Both flags default to 60 seconds. The gap is long enough to separate takes audibly and visually in Logic without ballooning total project length on a long session. The cluster window matches the empirical mtime spread within a single Pro Tools record-pass (well under 60s in observed data); a wider window risks merging back-to-back takes, a narrower window risks splitting a single physical take when channels stop slightly out of sync. Both defaults can be overridden per-run via the CLI flags listed in section 5.
+
+### 11.5 Logic Pro mixer channel-strip names: manual rename required after import
+
+Logic Pro does not propagate AAF metadata into the mixer's channel-strip name field on import. After import, channel strips appear as "Audio 1", "Audio 2", … while the track headers in the Tracks area show the correct names from `slot.name`. This was verified against multiple AAF metadata strategies — `slot.name`, `MasterMob.name` matching the track name, `PhysicalTrackNumber`, and Avid-convention `_TRACK_NAME` / `_PHYS_CHAN_NAME` tagged values on the slot's `TimelineMobAttributeList` — none of which Logic uses for channel-strip naming on AAF import. Workaround: in the Logic mixer, double-click each channel-strip name to rename it inline, then save the project as a Logic template for reuse on future imports.

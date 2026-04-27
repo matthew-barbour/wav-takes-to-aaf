@@ -4,7 +4,7 @@ A macOS command-line tool that scans a folder of multitrack WAV recordings (orga
 
 The script does **not** parse Pro Tools `.ptx` files. The WAV files and their filesystem timestamps are the sole source of truth for grouping and ordering takes. WAV files are referenced by absolute path — the AAF does not embed media, and source files are never modified.
 
-See [wav-takes-to-aaf-spec.md](wav-takes-to-aaf-spec.md) for the full design spec.
+See [docs/SPEC.md](docs/SPEC.md) for the full design spec.
 
 ## Requirements
 
