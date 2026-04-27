@@ -20,6 +20,14 @@ def _index_files_by_track_and_take(session: GroupedSession) -> Dict[str, Dict[in
     return index
 
 
+def _add_tagged_attribute(f, vector_property, name: str, value: str) -> None:
+    """Append a TaggedValue {name: value} to a MobAttributeList / TimelineMobAttributeList."""
+    tag = f.create.TaggedValue()
+    tag["Name"].value = name
+    tag["Value"].value = value
+    vector_property.append(tag)
+
+
 def _create_master_mob_for_file(f, parsed: ParsedFile):
     """Create SourceMob + WAVEDescriptor + MasterMob referencing ``parsed.path``."""
     abs_path = str(parsed.path.resolve())
@@ -40,7 +48,7 @@ def _create_master_mob_for_file(f, parsed: ParsedFile):
     source_slot.segment.length = parsed.sample_count
 
     master_mob = f.create.MasterMob()
-    master_mob.name = parsed.path.stem
+    master_mob.name = parsed.display_track_name
     f.content.mobs.append(master_mob)
     master_slot = master_mob.create_sound_slot(edit_rate=parsed.sample_rate)
     master_clip = source_mob.create_source_clip(slot_id=source_slot.slot_id, media_kind="Sound")
@@ -79,9 +87,13 @@ def write_aaf(
         comp.name = composition_name
         f.content.mobs.append(comp)
 
-        for track_name in session.track_names:
+        for track_index, track_name in enumerate(session.track_names, start=1):
             slot = comp.create_sound_slot(edit_rate=edit_rate)
             slot.name = track_name
+            slot["PhysicalTrackNumber"].value = track_index
+            _add_tagged_attribute(f, slot["TimelineMobAttributeList"], "_TRACK_NAME", track_name)
+            _add_tagged_attribute(f, slot["TimelineMobAttributeList"], "_PHYS_CHAN_NAME", track_name)
+
             sequence = f.create.Sequence(media_kind="Sound")
             slot.segment = sequence
 
