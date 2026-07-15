@@ -81,6 +81,41 @@ def test_round_trip_structure(tmp_path, two_takes_three_tracks):
                 assert comps_in_seq[2].length == expected_take_samples
 
 
+def test_write_aaf_with_rf64_file(tmp_path, wav_factory):
+    """Sessions with a >4 GiB Logic recording (RF64) must still write.
+
+    Regression test: aaf2.ama.get_wave_fmt returns None for RF64, which used
+    to leave the required WAVEDescriptor Summary unset and fail the write.
+    """
+    from tests.conftest import set_mtime, write_silent_rf64_wav
+
+    folder = tmp_path / "session"
+    folder.mkdir()
+    t0 = 2_000_000_000
+
+    wav_factory("Kick_01.wav", mtime=t0, bit_depth=32, folder=folder)
+    rf64_path = folder / "Vox_01.wav"
+    write_silent_rf64_wav(rf64_path, duration_seconds=1.0)
+    set_mtime(rf64_path, t0)
+
+    files, _ = scan_folder(folder)
+    assert len(files) == 2
+    session = group_files(files)
+    plan = build_timeline(session, gap_seconds=2.0)
+
+    out = tmp_path / "out.aaf"
+    write_aaf(out, session, plan)
+    assert out.exists() and out.stat().st_size > 0
+
+    with aaf2.open(str(out), "r") as f:
+        sources = list(f.content.sourcemobs())
+        assert len(sources) == 2
+        for smob in sources:
+            summary = bytes(smob.descriptor["Summary"].value)
+            assert summary[:4] == b"RIFF"
+            assert b"fmt " in summary
+
+
 def test_cli_preview_only_does_not_write(tmp_path, two_takes_three_tracks, capsys):
     out = tmp_path / "preview.aaf"
     rc = cli_main(["--gap-seconds", "2", "-o", str(out), str(two_takes_three_tracks)])

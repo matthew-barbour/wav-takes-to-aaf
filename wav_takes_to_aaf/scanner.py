@@ -131,6 +131,41 @@ def _read_wav_header(path: Path) -> Tuple[int, int, int, int]:
     return sample_rate, bits_per_sample, channels, sample_count
 
 
+def read_wave_summary(path: Path) -> bytes:
+    """Return the RIFF header + ``fmt `` chunk bytes for a WAVEDescriptor Summary.
+
+    Equivalent to ``aaf2.ama.get_wave_fmt`` (byte-identical for plain RIFF
+    files) but also understands RF64/BW64, which Logic switches to once a
+    recording exceeds 4 GiB — ``get_wave_fmt`` returns None for those. The
+    ``fmt `` chunk is identical across all three containers, so the summary is
+    always emitted in plain RIFF form, which is what AAF consumers expect.
+    """
+    with open(path, "rb") as f:
+        magic = f.read(4)
+        if magic not in (b"RIFF", b"RF64", b"BW64"):
+            raise WavParseError(f"not a RIFF/RF64 WAVE file (header: {magic!r})")
+        size_field = f.read(4)
+        if f.read(4) != b"WAVE":
+            raise WavParseError("not a WAVE file")
+
+        while True:
+            header = f.read(8)
+            if len(header) < 8:
+                raise WavParseError("no 'fmt ' chunk found")
+            chunk_size = struct.unpack("<I", header[4:])[0]
+            if header[:4] == b"fmt ":
+                fmt_data = f.read(chunk_size)
+                if len(fmt_data) < chunk_size:
+                    raise WavParseError("truncated 'fmt ' chunk")
+                if magic != b"RIFF":
+                    # RF64 stores 0xFFFFFFFF here (real size lives in the ds64
+                    # chunk, which the summary omits); write a size describing
+                    # just this summary instead.
+                    size_field = struct.pack("<I", 4 + 8 + chunk_size)
+                return b"RIFF" + size_field + b"WAVE" + header + fmt_data
+            f.seek(chunk_size + (chunk_size % 2), 1)
+
+
 def scan_folder(folder: Path) -> Tuple[List[ParsedFile], List[str]]:
     """
     Non-recursively scan ``folder`` for ``*.wav`` files.

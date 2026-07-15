@@ -70,6 +70,49 @@ def write_silent_float_wav(
     return n_samples
 
 
+def write_silent_rf64_wav(
+    path: Path,
+    *,
+    sample_rate: int = 48000,
+    channels: int = 1,
+    duration_seconds: float = 1.0,
+) -> int:
+    """Write a 32-bit float RF64 WAV, as Logic does once a recording passes
+    4 GiB: 0xFFFFFFFF sentinels in the 32-bit size fields, real sizes in ds64."""
+    bits_per_sample = 32
+    sample_width = bits_per_sample // 8
+    n_samples = int(sample_rate * duration_seconds)
+    block_align = channels * sample_width
+    byte_rate = sample_rate * block_align
+    data_size = n_samples * block_align
+    fmt_chunk_size = 16
+    ds64_chunk_size = 28
+    riff_size = 4 + (8 + ds64_chunk_size) + (8 + fmt_chunk_size) + (8 + data_size)
+
+    with open(path, "wb") as f:
+        f.write(b"RF64")
+        f.write(struct.pack("<I", 0xFFFFFFFF))
+        f.write(b"WAVE")
+        f.write(b"ds64")
+        f.write(struct.pack("<I", ds64_chunk_size))
+        f.write(struct.pack("<QQQI", riff_size, data_size, n_samples, 0))
+        f.write(b"fmt ")
+        f.write(struct.pack("<I", fmt_chunk_size))
+        f.write(struct.pack(
+            "<HHIIHH",
+            3,  # WAVE_FORMAT_IEEE_FLOAT
+            channels,
+            sample_rate,
+            byte_rate,
+            block_align,
+            bits_per_sample,
+        ))
+        f.write(b"data")
+        f.write(struct.pack("<I", 0xFFFFFFFF))
+        f.write(b"\x00" * data_size)
+    return n_samples
+
+
 @pytest.fixture
 def wav_factory(tmp_path):
     def _factory(

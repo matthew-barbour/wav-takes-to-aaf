@@ -8,7 +8,7 @@ import aaf2
 import aaf2.ama
 
 from .grouper import GroupedSession
-from .scanner import ParsedFile
+from .scanner import ParsedFile, read_wave_summary
 from .timeline import TimelinePlan
 
 
@@ -38,7 +38,9 @@ def _create_master_mob_for_file(f, parsed: ParsedFile):
 
     descriptor = f.create.WAVEDescriptor()
     descriptor["SampleRate"].value = parsed.sample_rate
-    descriptor["Summary"].value = aaf2.ama.get_wave_fmt(abs_path)
+    # Not aaf2.ama.get_wave_fmt: that silently returns None for RF64 files
+    # (Logic recordings > 4 GiB), leaving the required Summary unset.
+    descriptor["Summary"].value = read_wave_summary(parsed.path)
     descriptor["Length"].value = parsed.sample_count
     descriptor["ContainerFormat"].value = f.dictionary.lookup_containerdef("AAF")
     descriptor["Locator"].append(aaf2.ama.create_network_locator(f, abs_path))
