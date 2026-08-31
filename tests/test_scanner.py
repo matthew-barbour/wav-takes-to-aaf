@@ -16,6 +16,8 @@ class TestParseFilename:
             ("Tom 1_03.wav", "Tom 1", 3, None),
             ("Bass_3.wav", "Bass", 3, None),
             ("Track_With_Underscores_12.wav", "Track_With_Underscores", 12, None),
+            ("Lordy_01 L.wav", "Lordy", 1, "L"),
+            ("Mic_03 R.wav", "Mic", 3, "R"),
         ],
     )
     def test_valid(self, filename, expected_track, expected_take, expected_channel):
@@ -32,6 +34,7 @@ class TestParseFilename:
             "Track.wav",
             "Track_abc.wav",
             "Track_12-X.wav",
+            "Track_12 X.wav",
             ".wav",
         ],
     )
@@ -86,10 +89,12 @@ class TestScanFolder:
     def test_display_track_name_with_channel(self, tmp_path, wav_factory):
         wav_factory("Overhead_11-L.wav")
         wav_factory("Overhead_11-R.wav")
+        wav_factory("Lordy_11 L.wav")
+        wav_factory("Lordy_11 R.wav")
         wav_factory("Kick_11.wav")
         files, _ = scan_folder(tmp_path)
         names = sorted(f.display_track_name for f in files)
-        assert names == ["Kick", "Overhead-L", "Overhead-R"]
+        assert names == ["Kick", "Lordy-L", "Lordy-R", "Overhead-L", "Overhead-R"]
 
     def test_reads_32bit_float_wav(self, tmp_path):
         from tests.conftest import write_silent_float_wav

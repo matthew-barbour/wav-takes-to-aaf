@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-FILENAME_RE = re.compile(r"^(?P<track>.+?)_(?P<take>\d+)(?:-(?P<channel>[LR]))?\.wav$", re.IGNORECASE)
+# Channel suffix separator: Pro Tools writes "Track_01-L.wav", Logic's
+# split-stereo halves are "Track_01 L.wav" (space).
+FILENAME_RE = re.compile(r"^(?P<track>.+?)_(?P<take>\d+)(?:[-\s](?P<channel>[LR]))?\.wav$", re.IGNORECASE)
 
 WAVE_FORMAT_PCM = 0x0001
 WAVE_FORMAT_IEEE_FLOAT = 0x0003
